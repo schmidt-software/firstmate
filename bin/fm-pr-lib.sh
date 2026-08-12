@@ -4,13 +4,14 @@
 # constructing task paths or performing any side effect.
 #
 # The stored identity is provider-tagged: provider, url, host, path, number.
-# "path" is the full project path, which is owner/repository on GitHub and an
-# arbitrarily nested group/subgroup/project namespace on GitLab. A GitLab
-# project can sit at any depth, so no owner/repository pair can address one and
-# the sidecar carries the whole path instead. GitLab also runs on self-hosted
-# instances, so the host is part of that identity rather than a constant. Every
-# consumer re-derives the identity from the stored URL and refuses any record
-# whose parts do not reconstruct that exact URL.
+# "path" is the full project path, which is owner/repository on GitHub and
+# Gitea, and an arbitrarily nested group/subgroup/project namespace on GitLab.
+# A GitLab project can sit at any depth, so no owner/repository pair can
+# address one and the sidecar carries the whole path instead. GitLab and Gitea
+# both also run on self-hosted instances, so the host is part of that identity
+# rather than a constant. Every consumer re-derives the identity from the
+# stored URL and refuses any record whose parts do not reconstruct that exact
+# URL.
 #
 # A validated exact merged result is retired through a private receipt only
 # after its durable wake is appended.
@@ -109,14 +110,15 @@ fm_task_id_creation_valid() {
   [ "${#id}" -le 64 ]
 }
 
-# GitLab serves self-hosted instances, so the host is part of the identity
-# rather than a constant. It is accepted only as a lowercase DNS name with no
-# userinfo, port, or trailing dot, which keeps one canonical spelling per MR.
-# github.com is refused here even though its shape is otherwise valid: it is
-# GitHub's own host and never a GitLab instance, so a URL like
-# https://github.com/o/r/-/merge_requests/1 (a typo'd or spoofed GitHub URL)
-# would otherwise be armed as a GitLab watch that can never succeed.
-fm_pr_gitlab_host_valid() {
+# GitLab and Gitea both serve self-hosted instances, so the host is part of
+# the identity rather than a constant. It is accepted only as a lowercase DNS
+# name with no userinfo, port, or trailing dot, which keeps one canonical
+# spelling per MR/PR. github.com is refused here even though its shape is
+# otherwise valid: it is GitHub's own host and never a GitLab or Gitea
+# instance, so a URL like https://github.com/o/r/-/merge_requests/1 (a
+# typo'd or spoofed GitHub URL) would otherwise be armed as a watch that can
+# never succeed.
+fm_pr_selfhosted_host_valid() {
   local host=${1-} label
   local LC_ALL=C
   local -a labels
@@ -158,11 +160,13 @@ fm_pr_gitlab_path_valid() {
 
 # Parse a canonical PR or MR URL into the provider-tagged identity. Validation
 # is strict and per provider: the GitHub username and repository rules are
-# unchanged, and GitLab gets its own host and namespace rules rather than a
-# loosened GitHub rule.
+# unchanged, Gitea reuses those same owner/repository rules because Gitea's
+# route shape (owner/repository, no nested namespace) matches GitHub's, and
+# GitLab gets its own host and namespace rules rather than a loosened GitHub
+# rule.
 #
-# FM_PR_OWNER and FM_PR_REPO are additionally set for github because
-# bin/fm-pr-merge.sh addresses GitHub by owner/repository. A gitlab URL leaves
+# FM_PR_OWNER and FM_PR_REPO are additionally set for github and gitea because
+# bin/fm-pr-merge.sh addresses both by owner/repository. A gitlab URL leaves
 # them empty; teaching the merge path about GitLab is a separate change, and
 # until then it refuses a GitLab URL rather than merging anything.
 fm_pr_url_parse() {
@@ -191,6 +195,32 @@ fm_pr_url_parse() {
     FM_PR_NUMBER=${BASH_REMATCH[3]}
     return 0
   fi
+  # Gitea's PR route is the plural "/pulls/<n>", which is unambiguous against
+  # GitHub's singular "/pull/<n>" (matched above) and GitLab's
+  # "/-/merge_requests/<n>" (matched below): no self-hosted host can match
+  # more than one of these three shapes for the same URL. A Gitea project
+  # path is exactly owner/repository, like GitHub, so this reuses GitHub's
+  # owner and repository character rules rather than GitLab's nested
+  # namespace rule.
+  pattern='^https://([a-z0-9.-]{1,253})/([A-Za-z0-9]|[A-Za-z0-9][A-Za-z0-9-]{0,37}[A-Za-z0-9])/([A-Za-z0-9._-]{1,100})/pulls/([1-9][0-9]*)$'
+  if [[ "$raw" =~ $pattern ]]; then
+    host=${BASH_REMATCH[1]}
+    fm_pr_selfhosted_host_valid "$host" || return 1
+    [[ "${BASH_REMATCH[2]}" != *--* ]] || return 1
+    [ "${BASH_REMATCH[3]}" != . ] && [ "${BASH_REMATCH[3]}" != .. ] || return 1
+    FM_PR_PROVIDER=gitea
+    FM_PR_URL=$raw
+    FM_PR_HOST=$host
+    FM_PR_PATH="${BASH_REMATCH[2]}/${BASH_REMATCH[3]}"
+    # Consumed by bin/fm-pr-merge.sh, which addresses Gitea by owner/repository.
+    # shellcheck disable=SC2034
+    FM_PR_OWNER=${BASH_REMATCH[2]}
+    # shellcheck disable=SC2034
+    FM_PR_REPO=${BASH_REMATCH[3]}
+    FM_PR_NUMBER=${BASH_REMATCH[4]}
+    return 0
+  fi
+
   # The path class contains "/" and "-", so this match is greedy to the last
   # "/-/merge_requests/". Any earlier separator therefore lands inside the
   # captured path, where the reserved "-" segment is refused.
@@ -198,7 +228,7 @@ fm_pr_url_parse() {
   [[ "$raw" =~ $pattern ]] || return 1
   host=${BASH_REMATCH[1]}
   path=${BASH_REMATCH[2]}
-  fm_pr_gitlab_host_valid "$host" || return 1
+  fm_pr_selfhosted_host_valid "$host" || return 1
   fm_pr_gitlab_path_valid "$path" || return 1
   FM_PR_PROVIDER=gitlab
   FM_PR_URL=$raw
