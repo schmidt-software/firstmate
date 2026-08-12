@@ -4,8 +4,9 @@
 # otherwise, including on every error, so a failed lookup can never be read as
 # a merge. The provider-tagged identity is data in the sidecar and is never
 # interpolated into this source: these bytes are identical for every task.
-# Each provider is read through its own standard CLI, gh for GitHub and glab
-# for GitLab, so an upstream checkout needs no extra tooling to follow either.
+# Each provider is read through its own standard CLI: gh for GitHub, glab for
+# GitLab, and tea for Gitea, so an upstream checkout needs no extra tooling to
+# follow any of them.
 set -u
 LC_ALL=C
 export LC_ALL
@@ -64,6 +65,42 @@ case "$provider" in
     [ "$url" = "https://github.com/$owner/$repo/pull/$number" ] || exit 0
     state=$(gh pr view "$url" --json state -q .state 2>/dev/null) || exit 0
     [ "$state" = MERGED ] && printf '%s\n' merged
+    ;;
+  gitea)
+    [ "${#host}" -ge 1 ] && [ "${#host}" -le 253 ] || exit 0
+    [ "$host" != github.com ] || exit 0
+    case "$host" in
+      .*|*.|*..*|*[!a-z0-9.-]*) exit 0 ;;
+    esac
+    owner=${path%%/*}
+    repo=${path#*/}
+    [ "$owner" != "$path" ] || exit 0
+    [ "${#owner}" -ge 1 ] && [ "${#owner}" -le 39 ] || exit 0
+    case "$owner" in
+      *[!A-Za-z0-9-]*|-*|*-|*--*) exit 0 ;;
+    esac
+    [ "${#repo}" -ge 1 ] && [ "${#repo}" -le 100 ] || exit 0
+    case "$repo" in
+      .|..|*[!A-Za-z0-9._-]*) exit 0 ;;
+    esac
+    [ "$url" = "https://$host/$owner/$repo/pulls/$number" ] || exit 0
+    # tea addresses a Gitea instance by a stored login name rather than a bare
+    # host, so the login registered for this exact host is looked up fresh on
+    # every poll rather than assumed to equal the host string. The single PR
+    # is read by exact number through the raw API rather than through the
+    # list subcommand, because tea's field/output selectors apply only to
+    # list output, and a list would need pagination to find one PR in a busy
+    # repository. The API's own "state" field is a plain open/closed, with
+    # merges tracked in a separate boolean, so that boolean is what is
+    # matched here, directly in the raw JSON tea prints with no reformatting;
+    # only an exact match on that one field wakes, so a changed API shape
+    # produces no wake rather than a false merge.
+    login=$(tea login list -o csv 2>/dev/null | awk -F, -v h="https://$host" 'NR>1 && $2==h {print $1; exit}') || exit 0
+    [ -n "$login" ] || exit 0
+    raw=$(tea api --login "$login" "/repos/$owner/$repo/pulls/$number" 2>/dev/null) || exit 0
+    case "$raw" in
+      *'"merged":true'*) printf '%s\n' merged ;;
+    esac
     ;;
   gitlab)
     [ "${#host}" -ge 1 ] && [ "${#host}" -le 253 ] || exit 0
