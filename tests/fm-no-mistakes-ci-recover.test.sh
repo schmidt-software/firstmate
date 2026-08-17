@@ -273,6 +273,20 @@ test_refuses_too_brief_active_for() {
   pass "refuses when the confirmed active_for is too brief to rule out a transient hiccup"
 }
 
+test_refuses_subsecond_active_for_not_misread_as_minutes() {
+  reset_fakes
+  local d; d=$(new_case subsecond-active-for)
+  make_fakebin "$d"
+  write_meta "$d" t1
+  FM_FAKE_AXI_1=$(active_run_out running 1m35s "3s ago: log: warning: $KNOWN_WARNING")
+  FM_FAKE_AXI_2=$(active_run_out running 500ms "1s ago: log: warning: $KNOWN_WARNING")
+  local out rc; out=$(run_recover "$d" t1); rc=$?
+  expect_code 1 "$rc" "sub-second active_for must refuse, not be misread as 500 minutes"
+  assert_contains "$out" "REFUSED:" "refusal is labeled"
+  assert_contains "$out" "too brief to rule out a transient hiccup" "names the brevity refusal"
+  pass "refuses a sub-second Go duration active_for instead of misparsing its 'm' as minutes"
+}
+
 # --- (b) confirmed but no --force -------------------------------------------
 
 test_refuses_without_force_when_confirmed() {
@@ -541,6 +555,7 @@ test_refuses_log_text_mismatch
 test_refuses_second_sample_recovered_no_row
 test_refuses_second_sample_advanced_past_warning
 test_refuses_too_brief_active_for
+test_refuses_subsecond_active_for_not_misread_as_minutes
 test_refuses_without_force_when_confirmed
 test_refuses_when_github_checks_nonzero
 test_refuses_when_github_reports_failing_check
