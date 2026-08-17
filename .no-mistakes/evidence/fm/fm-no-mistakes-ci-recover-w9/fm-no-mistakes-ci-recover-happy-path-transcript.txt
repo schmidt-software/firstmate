@@ -1,0 +1,26 @@
+diagnosing task demo1 (worktree: /tmp/nm-cli-demo/wt)
+first sample: ci step running, log: 1s ago: log: warning: could not check CI: gh pr checks: exit status 1
+waiting 1s for a second sample...
+confirmed: ci step (run 01RUN) stuck running for 1m42s, repeating: 1s ago: log: warning: could not check CI: gh pr checks: exit status 1
+
+independently checking GitHub: gh pr checks 4 --repo schmidt-software/firstmate (run from /tmp/nm-cli-demo/wt)
+build  pass  1m2s  https://example.invalid/run/1
+confirmed: GitHub reports PR https://github.com/schmidt-software/firstmate/pull/4 green while no-mistakes' ci step is stuck retrying a false failure
+
+other no-mistakes runs a daemon restart would affect (this task's own branch is 'fm/demo-task'):
+  running    fm/other-crew aaaaaaa  2026-08-18 10:00
+
+restarting the no-mistakes daemon (--force)...
+daemon restarted; affected runs: fm/other-crew, fm/demo-task
+
+confirming daemon health...
+  - daemon          running
+confirmed: no-mistakes daemon is healthy again
+
+next: tell the worker it is safe to resume and close its open decision:
+  FM_HOME=/tmp/nm-cli-demo/home /tmp/nm-cli-demo/scriptdir/fm-send.sh demo1 --resolve-key default no-mistakes\ daemon\ restarted:\ task\ demo1\'s\ ci\ step\ was\ stuck\ retrying\ a\ false\ CI\ failure\ \(known\ bug\,\ github.com/schmidt-software/firstmate/issues/3\)\ even\ though\ GitHub\ already\ showed\ PR\ https://github.com/schmidt-software/firstmate/pull/4\ green\;\ safe\ to\ resume\ -\ continue\ with\ sync/rerun\ per\ your\ brief.
+notifying task demo1...
+[fake fm-send.sh invoked with: demo1 --resolve-key default no-mistakes daemon restarted: task demo1's ci step was stuck retrying a false CI failure (known bug, github.com/schmidt-software/firstmate/issues/3) even though GitHub already showed PR https://github.com/schmidt-software/firstmate/pull/4 green; safe to resume - continue with sync/rerun per your brief.]
+notified: task demo1
+
+RECOVERED: daemon restarted and confirmed healthy for task demo1
