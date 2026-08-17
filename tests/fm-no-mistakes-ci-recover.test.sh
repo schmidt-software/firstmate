@@ -289,6 +289,23 @@ test_refuses_subsecond_active_for_not_misread_as_minutes() {
   pass "refuses a sub-second Go duration active_for instead of misparsing its 'm' as minutes"
 }
 
+test_fractional_second_active_for_keeps_whole_seconds() {
+  reset_fakes
+  local d; d=$(new_case fractional-active-for)
+  make_fakebin "$d"
+  write_meta "$d" t1
+  FM_FAKE_AXI_1=$(active_run_out running 1m30s "3s ago: log: warning: $KNOWN_WARNING")
+  FM_FAKE_AXI_2=$(active_run_out running 1m35.243573921s "1s ago: log: warning: $KNOWN_WARNING")
+  FM_FAKE_RUNS_LIST="  running    fm/other-crew aaaaaaa  2026-08-17 10:00"
+  local out rc
+  out=$(FM_NMCR_MIN_ACTIVE_SECS=90 run_recover "$d" t1); rc=$?
+  expect_code 1 "$rc" "confirmed bug without --force must refuse for the missing flag, not for brevity"
+  assert_not_contains "$out" "too brief" "fractional seconds must not be truncated away, undercounting active_for below the floor"
+  assert_contains "$out" "GitHub reports PR" "GitHub verification ran, proving active_for cleared the 90s floor"
+  assert_contains "$out" "but --force was not given" "names the missing --force"
+  pass "keeps whole seconds from a fractional-second active_for instead of zeroing them"
+}
+
 # --- (b) confirmed but no --force -------------------------------------------
 
 test_refuses_without_force_when_confirmed() {
@@ -573,6 +590,7 @@ test_refuses_second_sample_recovered_no_row
 test_refuses_second_sample_advanced_past_warning
 test_refuses_too_brief_active_for
 test_refuses_subsecond_active_for_not_misread_as_minutes
+test_fractional_second_active_for_keeps_whole_seconds
 test_refuses_without_force_when_confirmed
 test_runs_listing_failure_is_not_reported_as_empty
 test_refuses_when_github_checks_nonzero

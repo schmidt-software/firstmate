@@ -207,6 +207,7 @@ duration_to_secs() {  # <duration>
   case "$rest" in *h*) h=${rest%%h*}; rest=${rest#*h} ;; esac
   case "$rest" in *m*) m=${rest%%m*}; rest=${rest#*m} ;; esac
   case "$rest" in *s) sec=${rest%s} ;; esac
+  case "$sec" in *.*) sec=${sec%%.*} ;; esac
   case "$h" in ''|*[!0-9]*) h=0 ;; esac
   case "$m" in ''|*[!0-9]*) m=0 ;; esac
   case "$sec" in ''|*[!0-9]*) sec=0 ;; esac
