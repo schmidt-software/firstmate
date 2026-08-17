@@ -103,6 +103,7 @@ case "\${1:-}" in
     ;;
   runs)
     printf '%s\n' "\${FM_FAKE_RUNS_LIST:-}"
+    exit "\${FM_FAKE_RUNS_RC:-0}"
     ;;
   daemon)
     shift
@@ -134,6 +135,7 @@ reset_fakes() {
   FM_FAKE_AXI_1=""
   FM_FAKE_AXI_2=""
   FM_FAKE_RUNS_LIST=""
+  FM_FAKE_RUNS_RC=0
   FM_FAKE_RESTART_OUT=""
   FM_FAKE_RESTART_RC=0
   FM_FAKE_DOCTOR_OUT=""
@@ -141,7 +143,7 @@ reset_fakes() {
   FM_FAKE_GH_RC=0
   FM_FAKE_SEND_OUT=""
   FM_FAKE_SEND_RC=0
-  export FM_FAKE_AXI_1 FM_FAKE_AXI_2 FM_FAKE_RUNS_LIST FM_FAKE_RESTART_OUT
+  export FM_FAKE_AXI_1 FM_FAKE_AXI_2 FM_FAKE_RUNS_LIST FM_FAKE_RUNS_RC FM_FAKE_RESTART_OUT
   export FM_FAKE_RESTART_RC FM_FAKE_DOCTOR_OUT FM_FAKE_GH_OUT FM_FAKE_GH_RC
   export FM_FAKE_SEND_OUT FM_FAKE_SEND_RC
 }
@@ -304,6 +306,21 @@ test_refuses_without_force_when_confirmed() {
   assert_contains "$out" "but --force was not given" "names the missing --force"
   assert_not_contains "$out" "RECOVERED" "must not report success without --force"
   pass "refuses to restart without --force even when fully confirmed"
+}
+
+test_runs_listing_failure_is_not_reported_as_empty() {
+  reset_fakes
+  local d; d=$(new_case runs-listing-fails)
+  make_fakebin "$d"
+  write_meta "$d" t1
+  arm_confirmed_stuck
+  FM_FAKE_RUNS_RC=1
+  FM_FAKE_RUNS_LIST=""
+  local out rc; out=$(run_recover "$d" t1); rc=$?
+  expect_code 1 "$rc" "confirmed bug without --force must still refuse"
+  assert_contains "$out" "could not query other active runs" "a failed runs listing is surfaced as a warning"
+  assert_not_contains "$out" "(no runs reported)" "a failed listing must not be reported as a genuinely empty one"
+  pass "reports a failed/timed-out runs listing distinctly from a genuinely empty one"
 }
 
 # --- (c) GitHub disagrees ----------------------------------------------------
@@ -557,6 +574,7 @@ test_refuses_second_sample_advanced_past_warning
 test_refuses_too_brief_active_for
 test_refuses_subsecond_active_for_not_misread_as_minutes
 test_refuses_without_force_when_confirmed
+test_runs_listing_failure_is_not_reported_as_empty
 test_refuses_when_github_checks_nonzero
 test_refuses_when_github_reports_failing_check
 test_force_restart_succeeds

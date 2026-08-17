@@ -272,8 +272,11 @@ echo "confirmed: GitHub reports PR $PR_URL green while no-mistakes' ci step is s
 BRANCH=$(git -C "$WT" symbolic-ref --quiet --short HEAD 2>/dev/null || true)
 echo
 echo "other no-mistakes runs a daemon restart would affect (this task's own branch is '$BRANCH'):"
-RUNS_LIST=$(fm_nm_run "$WT" "$NM_TIMEOUT" runs --limit "$RUNS_LIMIT")
-if [ -n "$RUNS_LIST" ]; then
+RUNS_LIST=$(fm_nm_run_bounded "$WT" "$NM_TIMEOUT" runs --limit "$RUNS_LIMIT" 2>&1)
+RUNS_RC=$?
+if [ "$RUNS_RC" -ne 0 ]; then
+  echo "(could not query other active runs - no-mistakes runs failed or timed out; assume other work may be affected before deciding)"
+elif [ -n "$RUNS_LIST" ]; then
   printf '%s\n' "$RUNS_LIST"
 else
   echo "(no runs reported)"
