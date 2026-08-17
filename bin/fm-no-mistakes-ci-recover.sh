@@ -200,15 +200,22 @@ nm_active_ci_row() {  # <run-out>
 # Splits on commas that fall outside a quoted field, per this repo's TOON
 # quoting convention (bin/fm-bearings-snapshot.sh), so a comma embedded inside
 # the quoted last_activity free-text column (e.g. a retry-count log line) is
-# never mistaken for a column delimiter.
+# never mistaken for a column delimiter. A backslash-escaped quote (\") or
+# backslash (\\) inside that same free-text column is unescaped in place and
+# never toggles the quote-open/closed state itself, since that convention's
+# escaping is exactly how it lets a literal quote appear inside a quoted
+# field without ending it.
 nm_active_ci_fields() {  # <row>
   printf '%s' "$1" | awk '
     {
       n = 0
       field = ""
       inquotes = 0
+      escape = 0
       for (i = 1; i <= length($0); i++) {
         c = substr($0, i, 1)
+        if (escape) { field = field c; escape = 0; continue }
+        if (c == "\\") { escape = 1; continue }
         if (c == "\"") { inquotes = !inquotes; continue }
         if (c == "," && !inquotes) { fields[n++] = field; field = ""; continue }
         field = field c

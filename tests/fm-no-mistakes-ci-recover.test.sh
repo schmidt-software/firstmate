@@ -325,6 +325,47 @@ test_confirms_stuck_when_last_activity_has_embedded_comma() {
   pass "recognizes the known warning even when last_activity contains a comma before the marker text"
 }
 
+test_confirms_stuck_when_last_activity_has_escaped_quote() {
+  reset_fakes
+  local d; d=$(new_case escaped-quote-in-last-activity)
+  make_fakebin "$d"
+  write_meta "$d" t1
+  # An embedded quote is TOON-escaped as \" (bin/fm-bearings-snapshot.sh
+  # convention); the comma right after it must still be treated as inside
+  # the quoted field, not as the field's real closing delimiter.
+  FM_FAKE_AXI_1=$(active_run_out running 1m35s 'truncated: ...value\", attempt 4, still '"$KNOWN_WARNING")
+  FM_FAKE_AXI_2=$(active_run_out running 1m40s 'truncated: ...value\", attempt 5, still '"$KNOWN_WARNING")
+  FM_FAKE_RUNS_LIST="  running    fm/other-crew aaaaaaa  2026-08-17 10:00"
+  local out rc; out=$(run_recover "$d" t1); rc=$?
+  expect_code 1 "$rc" "confirmed bug without --force must refuse for the missing flag, not a parsing mismatch"
+  assert_not_contains "$out" "does not match the known warning" "an escaped quote before a comma must not desync the quote toggle and truncate last_activity, hiding the marker"
+  assert_not_contains "$out" "log advanced past the known warning" "the second sample's escaped quote must not hide the marker either"
+  assert_contains "$out" "GitHub reports PR" "GitHub verification ran, proving the stuck condition was still confirmed"
+  assert_contains "$out" "but --force was not given" "names the missing --force"
+  pass "recognizes the known warning even when last_activity contains an escaped quote before the marker text"
+}
+
+test_confirms_stuck_when_last_activity_has_escaped_backslash_before_quote() {
+  reset_fakes
+  local d; d=$(new_case escaped-backslash-quote-in-last-activity)
+  make_fakebin "$d"
+  write_meta "$d" t1
+  # An escaped backslash (\\) directly followed by an escaped quote (\") must
+  # each be consumed as their own one-character literal - not have the first
+  # backslash's escape swallow the quote as well, which would leave the quote
+  # toggle desynced for the rest of the field.
+  FM_FAKE_AXI_1=$(active_run_out running 1m35s 'path C:\\\" then value, attempt 4, still '"$KNOWN_WARNING")
+  FM_FAKE_AXI_2=$(active_run_out running 1m40s 'path C:\\\" then value, attempt 5, still '"$KNOWN_WARNING")
+  FM_FAKE_RUNS_LIST="  running    fm/other-crew aaaaaaa  2026-08-17 10:00"
+  local out rc; out=$(run_recover "$d" t1); rc=$?
+  expect_code 1 "$rc" "confirmed bug without --force must refuse for the missing flag, not a parsing mismatch"
+  assert_not_contains "$out" "does not match the known warning" "an escaped backslash immediately before an escaped quote must not desync the quote toggle and truncate last_activity, hiding the marker"
+  assert_not_contains "$out" "log advanced past the known warning" "the second sample's escaped backslash-quote pair must not hide the marker either"
+  assert_contains "$out" "GitHub reports PR" "GitHub verification ran, proving the stuck condition was still confirmed"
+  assert_contains "$out" "but --force was not given" "names the missing --force"
+  pass "recognizes the known warning even when last_activity contains an escaped backslash immediately before an escaped quote"
+}
+
 test_ignores_sibling_table_decoy_ci_row() {
   reset_fakes
   local d; d=$(new_case sibling-decoy)
@@ -643,6 +684,8 @@ test_refuses_too_brief_active_for
 test_refuses_subsecond_active_for_not_misread_as_minutes
 test_fractional_second_active_for_keeps_whole_seconds
 test_confirms_stuck_when_last_activity_has_embedded_comma
+test_confirms_stuck_when_last_activity_has_escaped_quote
+test_confirms_stuck_when_last_activity_has_escaped_backslash_before_quote
 test_ignores_sibling_table_decoy_ci_row
 test_refuses_without_force_when_confirmed
 test_runs_listing_failure_is_not_reported_as_empty
