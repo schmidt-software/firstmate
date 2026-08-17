@@ -40,7 +40,9 @@
 # does not rely on any assumption about what an unforced `daemon restart`
 # would do if nothing else were active, so it never invokes that subcommand
 # at all except in the single --force branch, once the operator has already
-# committed to restarting.
+# committed to restarting. A failed or timed-out `runs` query is reported as
+# such, distinct from a genuinely empty listing, instead of being silently
+# treated as "nothing else is active".
 #
 # After a --force restart, `no-mistakes doctor` must report the daemon
 # healthy again before this script reports success. It then prints the exact
