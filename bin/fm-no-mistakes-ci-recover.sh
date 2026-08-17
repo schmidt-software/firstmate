@@ -21,7 +21,8 @@
 # itself already reports the check green, and lists every other no-mistakes
 # run a daemon restart would affect - then refuses to restart anything. It
 # never restarts the shared daemon on its own; --force is required every
-# time, matching AGENTS.md's standing rule that a shared-daemon restart is a
+# time, matching the project-management skill's standing rule that firstmate
+# never restarts the shared daemon from a project operation - here, a
 # deliberate, explicitly-stated decision each time, never an automated
 # default.
 #
