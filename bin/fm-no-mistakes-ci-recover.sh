@@ -195,8 +195,13 @@ nm_active_ci_fields() {  # <row>
 }
 
 # Go-style duration string ("13m35s", "45s", "1h2m3s", "2h") to whole seconds.
+# Sub-second Go units (ms, µs/us, ns) are recognized before the h/m/s parsing
+# below so the literal "m" in "ms" is never misread as the minutes separator;
+# duration_to_secs only needs whole-second precision, so any sub-second value
+# safely floors to 0.
 duration_to_secs() {  # <duration>
   local rest=$1 h=0 m=0 sec=0
+  case "$rest" in *ms|*[uµ]s|*ns) printf '%s' 0; return ;; esac
   case "$rest" in *h*) h=${rest%%h*}; rest=${rest#*h} ;; esac
   case "$rest" in *m*) m=${rest%%m*}; rest=${rest#*m} ;; esac
   case "$rest" in *s) sec=${rest%s} ;; esac

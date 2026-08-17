@@ -13,8 +13,9 @@
 #   (c) refuses when GitHub itself does not already show the check green
 #       (non-zero exit, or a reported failing check)
 #   (d) a fully confirmed --force run restarts the daemon, requires
-#       `no-mistakes doctor` to report it healthy again, and prints the exact
-#       fm-send.sh command to unblock the worker
+#       `no-mistakes doctor` to report it healthy again, prints the exact
+#       fm-send.sh command to unblock the worker, and --notify-worker actually
+#       runs that command (both its success and failure paths)
 #   (e) usage/environment errors: missing meta, non-ship kind, torn-down
 #       worktree, missing PR, non-GitHub PR provider, bad flags
 set -u
@@ -138,8 +139,11 @@ reset_fakes() {
   FM_FAKE_DOCTOR_OUT=""
   FM_FAKE_GH_OUT=""
   FM_FAKE_GH_RC=0
+  FM_FAKE_SEND_OUT=""
+  FM_FAKE_SEND_RC=0
   export FM_FAKE_AXI_1 FM_FAKE_AXI_2 FM_FAKE_RUNS_LIST FM_FAKE_RESTART_OUT
   export FM_FAKE_RESTART_RC FM_FAKE_DOCTOR_OUT FM_FAKE_GH_OUT FM_FAKE_GH_RC
+  export FM_FAKE_SEND_OUT FM_FAKE_SEND_RC
 }
 
 # A confirmed-stuck pair of samples: both show ci running with the known
@@ -157,6 +161,33 @@ run_recover() {  # <case-dir> <id> [args...]
   PATH="$d/fakebin:$PATH" FM_STATE_OVERRIDE="$d/state" FM_HOME="$d/home" \
     FM_ROOT_OVERRIDE="$ROOT" FM_NMCR_SAMPLE_INTERVAL_SECS=0 \
     "$RECOVER" "$id" "$@" 2>&1
+}
+
+# A copy of the script under test alongside a fake fm-send.sh, so
+# --notify-worker's `"$SCRIPT_DIR/fm-send.sh"` call (SCRIPT_DIR resolves from
+# the running script's own location) hits the fake instead of the real
+# bin/fm-send.sh. Records the fake's argv to $d/send-call.args for assertion.
+make_scriptdir_with_fake_send() {  # <case-dir>
+  local d=$1
+  mkdir -p "$d/scriptdir"
+  cp "$ROOT/bin/fm-no-mistakes-ci-recover.sh" "$ROOT/bin/fm-nm-run-lib.sh" \
+    "$ROOT/bin/fm-pr-lib.sh" "$d/scriptdir/"
+  cat > "$d/scriptdir/fm-send.sh" <<SH
+#!/usr/bin/env bash
+set -u
+printf '%s\n' "\$@" > "$d/send-call.args"
+printf '%s\n' "\${FM_FAKE_SEND_OUT:-}"
+exit "\${FM_FAKE_SEND_RC:-0}"
+SH
+  chmod +x "$d/scriptdir/fm-no-mistakes-ci-recover.sh" "$d/scriptdir/fm-send.sh"
+}
+
+run_recover_with_fake_send() {  # <case-dir> <id> [args...]
+  local d=$1 id=$2
+  shift 2
+  PATH="$d/fakebin:$PATH" FM_STATE_OVERRIDE="$d/state" FM_HOME="$d/home" \
+    FM_ROOT_OVERRIDE="$ROOT" FM_NMCR_SAMPLE_INTERVAL_SECS=0 \
+    "$d/scriptdir/fm-no-mistakes-ci-recover.sh" "$id" "$@" 2>&1
 }
 
 # --- (a) stuck condition not confirmed --------------------------------------
@@ -358,6 +389,50 @@ test_force_restart_doctor_unhealthy() {
   pass "reports when doctor does not confirm daemon health after a restart"
 }
 
+# --- (d, cont.) --notify-worker actually runs fm-send.sh -------------------
+
+test_notify_worker_succeeds() {
+  reset_fakes
+  local d; d=$(new_case notify-worker-succeeds)
+  make_fakebin "$d"
+  make_scriptdir_with_fake_send "$d"
+  write_meta "$d" t1
+  arm_confirmed_stuck
+  FM_FAKE_SEND_RC=0
+  FM_FAKE_SEND_OUT="steer submitted"
+  local out rc; out=$(run_recover_with_fake_send "$d" t1 --force --notify-worker); rc=$?
+  expect_code 0 "$rc" "a successful fm-send.sh must not fail the run"
+  assert_contains "$out" "notifying task t1" "notify attempt is announced"
+  assert_contains "$out" "steer submitted" "fm-send.sh output is shown"
+  assert_contains "$out" "notified: task t1" "success is reported"
+  assert_contains "$out" "RECOVERED:" "overall recovery is still reported"
+  [ -f "$d/send-call.args" ] || fail "fm-send.sh must actually be invoked"
+  local call; call=$(cat "$d/send-call.args")
+  assert_contains "$call" "t1" "fm-send.sh is called with the task id"
+  assert_contains "$call" "--resolve-key" "fm-send.sh is called with --resolve-key"
+  assert_contains "$call" "default" "fm-send.sh is called with the default resolve key"
+  pass "--notify-worker invokes fm-send.sh and reports success on the happy path"
+}
+
+test_notify_worker_failure() {
+  reset_fakes
+  local d; d=$(new_case notify-worker-fails)
+  make_fakebin "$d"
+  make_scriptdir_with_fake_send "$d"
+  write_meta "$d" t1
+  arm_confirmed_stuck
+  FM_FAKE_SEND_RC=1
+  FM_FAKE_SEND_OUT="could not reach backend"
+  local out rc; out=$(run_recover_with_fake_send "$d" t1 --force --notify-worker); rc=$?
+  expect_code 1 "$rc" "a failed fm-send.sh must fail the run"
+  assert_contains "$out" "could not reach backend" "fm-send.sh failure output is shown"
+  assert_contains "$out" "error: fm-send.sh failed to notify task t1" "the failure is reported"
+  assert_contains "$out" "run the command above manually" "the manual fallback is pointed to"
+  assert_not_contains "$out" "RECOVERED" "must not report recovery when notify fails"
+  [ -f "$d/send-call.args" ] || fail "fm-send.sh must actually be invoked"
+  pass "--notify-worker reports failure and points to the manual fallback when fm-send.sh fails"
+}
+
 # --- (e) usage and environment errors ---------------------------------------
 
 test_missing_meta() {
@@ -473,6 +548,8 @@ test_force_restart_succeeds
 test_force_restart_custom_resolve_key
 test_force_restart_daemon_failure
 test_force_restart_doctor_unhealthy
+test_notify_worker_succeeds
+test_notify_worker_failure
 test_missing_meta
 test_non_ship_kind
 test_torn_down_worktree
