@@ -200,7 +200,9 @@ nm_active_ci_fields() {  # <row>
 # Sub-second Go units (ms, µs/us, ns) are recognized before the h/m/s parsing
 # below so the literal "m" in "ms" is never misread as the minutes separator;
 # duration_to_secs only needs whole-second precision, so any sub-second value
-# safely floors to 0.
+# safely floors to 0. A fractional seconds component (e.g. "1m35.243s") is
+# truncated to whole seconds rather than rejected as non-numeric, so it still
+# counts toward active_for instead of undercounting to just the minutes/hours.
 duration_to_secs() {  # <duration>
   local rest=$1 h=0 m=0 sec=0
   case "$rest" in *ms|*[uµ]s|*ns) printf '%s' 0; return ;; esac
