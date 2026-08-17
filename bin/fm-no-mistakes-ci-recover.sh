@@ -172,13 +172,25 @@ nm_status() {
   fm_nm_run "$WT" "$NM_TIMEOUT" axi status
 }
 
-# First "ci," row inside the active_steps[...] table only - never the
-# separate completed-steps summary table, which uses different columns and
-# can also carry a "ci,running,..." row with no bearing on this bug.
+# First "ci," row inside the active_steps[...] table only - never a sibling
+# table (e.g. the separate completed-steps summary table), which uses
+# different columns and can also carry a "ci,running,..." row with no bearing
+# on this bug. The boundary is any later line indented no deeper than the
+# active_steps[...] header line itself, not specifically column 0, since a
+# sibling table nested at the same level as active_steps (not just a
+# top-level run:/branch_sync: key) must never be scanned into either.
 nm_active_ci_row() {  # <run-out>
   printf '%s\n' "$1" | awk '
-    /^[[:space:]]*active_steps\[/ { active=1; next }
-    active && /^[^[:space:]]/ { active=0 }
+    /^[[:space:]]*active_steps\[/ {
+      match($0, /^[[:space:]]*/)
+      indent = RLENGTH
+      active = 1
+      next
+    }
+    active {
+      match($0, /^[[:space:]]*/)
+      if (RLENGTH <= indent) { active = 0 }
+    }
     active && /^[[:space:]]*ci,/ { print; exit }
   '
 }

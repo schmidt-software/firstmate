@@ -306,6 +306,37 @@ test_fractional_second_active_for_keeps_whole_seconds() {
   pass "keeps whole seconds from a fractional-second active_for instead of zeroing them"
 }
 
+test_ignores_sibling_table_decoy_ci_row() {
+  reset_fakes
+  local d; d=$(new_case sibling-decoy)
+  make_fakebin "$d"
+  write_meta "$d" t1
+  # active_steps[1] has no "ci," row (its one step is "lint"); a sibling
+  # completed_steps[1] table nested at the exact same indent level as
+  # active_steps carries its own "ci,running,..." row shaped exactly like the
+  # confirmed-stuck bug. nm_active_ci_row() must stop scanning at the sibling
+  # table's header (same indent as active_steps' own header), never fall
+  # through into it and return this lookalike row.
+  FM_FAKE_AXI_1=$(cat <<EOF
+run:
+  id: "01RUN"
+  branch: fm/test-task
+  status: running
+  head: "abc1234"
+  pr: "https://github.com/o/r/pull/7"
+  active_steps[1]{step,status,active_for,last_activity,agent_pid,round}:
+    lint,running,1m35s,"3s ago: log: nothing interesting","",starting
+  completed_steps[1]{step,status,active_for,last_activity,agent_pid,round}:
+    ci,running,1m40s,"1s ago: log: warning: $KNOWN_WARNING","",done
+EOF
+)
+  local out rc; out=$(run_recover "$d" t1); rc=$?
+  expect_code 1 "$rc" "a decoy ci row in a sibling table must not be treated as an active ci step"
+  assert_contains "$out" "REFUSED:" "refusal is labeled"
+  assert_contains "$out" "no active 'ci' step" "names the missing active step, not the decoy row"
+  pass "never matches a lookalike ci row from a sibling table nested at active_steps' own indent level"
+}
+
 # --- (b) confirmed but no --force -------------------------------------------
 
 test_refuses_without_force_when_confirmed() {
@@ -591,6 +622,7 @@ test_refuses_second_sample_advanced_past_warning
 test_refuses_too_brief_active_for
 test_refuses_subsecond_active_for_not_misread_as_minutes
 test_fractional_second_active_for_keeps_whole_seconds
+test_ignores_sibling_table_decoy_ci_row
 test_refuses_without_force_when_confirmed
 test_runs_listing_failure_is_not_reported_as_empty
 test_refuses_when_github_checks_nonzero
