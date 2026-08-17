@@ -802,16 +802,13 @@ if (
 }
 
 for (const itemClass of visibility.CALM_TRANSCRIPT_CLASSES) {
-  for (const level of ["on", "max"]) {
-    const visible = visibility.calmTranscriptClassIsVisible(itemClass, level);
-    const expected =
-      itemClass === "genuine-user-prompt" ||
-      itemClass === "genuine-agent-response" ||
-      itemClass === "working-status" ||
-      (itemClass === "assistant-working-note" && level === "on");
-    if (visible !== expected) {
-      throw new Error(`Calm allowlist classified ${itemClass} as visible=${visible} at level ${level}`);
-    }
+  const visible = visibility.calmTranscriptClassIsVisible(itemClass);
+  const expected =
+    itemClass === "genuine-user-prompt" ||
+    itemClass === "genuine-agent-response" ||
+    itemClass === "working-status";
+  if (visible !== expected) {
+    throw new Error(`Calm allowlist classified ${itemClass} as visible=${visible}`);
   }
 }
 const watcherBody =
@@ -1359,10 +1356,10 @@ JS
   pass "Pi calm centralizes transcript visibility, preserves execution/export data, keeps Pi's stock working row visible while no run is active, and persists its choice across session starts"
 }
 
-test_calm_max_mid_turn_working_notes() {
+test_calm_mid_turn_working_notes() {
   local fixture out output_file status version
   if ! command -v node >/dev/null 2>&1 || ! command -v npm >/dev/null 2>&1; then
-    echo "skip: node or npm not found for Pi calm max renderer test"
+    echo "skip: node or npm not found for Pi calm mid-turn renderer test"
     return 0
   fi
   if [ ! -f "$PI_PACKAGE_DIR/package.json" ]; then
@@ -1370,9 +1367,9 @@ test_calm_max_mid_turn_working_notes() {
     return 0
   fi
   version=$(node -p "require('$PI_PACKAGE_DIR/package.json').version")
-  record_pi_version_evidence "$version" "Pi calm max mid-turn presentation"
+  record_pi_version_evidence "$version" "Pi calm mid-turn presentation"
 
-  fixture="$TMP_ROOT/calm-max"
+  fixture="$TMP_ROOT/calm-mid-turn"
   mkdir -p "$fixture/home" "$fixture/lib" "$fixture/node_modules/@earendil-works"
   cp "$EXT" "$fixture/fm-calm.ts"
   cp "$ASSISTANT_LAYOUT" "$fixture/lib/fm-calm-assistant-layout.ts"
@@ -1387,7 +1384,7 @@ test_calm_max_mid_turn_working_notes() {
 
   output_file="$fixture/node-output"
   (cd "$fixture" && EXT="$fixture/fm-calm.ts" FM_HOME="$fixture/home" PI_PACKAGE_DIR="$PI_PACKAGE_DIR" node --input-type=module) >"$output_file" 2>&1 <<'JS'
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 
 const packageRoot = process.env.PI_PACKAGE_DIR;
@@ -1440,7 +1437,7 @@ async function loadCalmExtension() {
       return [];
     },
   };
-  const extension = await import(`${pathToFileURL(process.env.EXT).href}?max=${Date.now()}-${Math.random()}`);
+  const extension = await import(`${pathToFileURL(process.env.EXT).href}?instance=${Date.now()}-${Math.random()}`);
   extension.default(pi);
   if (!calmCommand || !sessionStart) {
     throw new Error("Calm extension did not register its command and session handler");
@@ -1450,8 +1447,8 @@ async function loadCalmExtension() {
 
 const assistantBase = {
   role: "assistant",
-  api: "calm-max-test",
-  provider: "calm-max-test",
+  api: "calm-mid-turn-test",
+  provider: "calm-mid-turn-test",
   model: "deterministic",
   usage: {
     input: 0,
@@ -1463,7 +1460,7 @@ const assistantBase = {
   },
   timestamp: 1,
 };
-const toolCall = { type: "toolCall", id: "calm-max-tool", name: "read", arguments: { path: "sample.txt" } };
+const toolCall = { type: "toolCall", id: "calm-mid-turn-tool", name: "read", arguments: { path: "sample.txt" } };
 const messages = {
   // The reported incident: narration emitted in the same assistant message as a tool call.
   midTurn: {
@@ -1471,7 +1468,7 @@ const messages = {
     stopReason: "toolUse",
     content: [{ type: "text", text: "MIDTURN_WORKING_NOTE" }, toolCall],
   },
-  // The genuine reply that ends a response, which no level may hide.
+  // The genuine reply that ends a response, which Calm never hides.
   finalReply: {
     ...assistantBase,
     stopReason: "stop",
@@ -1535,85 +1532,78 @@ await calm.calmCommand.handler("", context);
 if (readFileSync(calmPreferencePath, "utf8") !== "on\n") {
   throw new Error("plain /calm from off did not persist on");
 }
-requireVisible("midTurn", "MIDTURN_WORKING_NOTE", "ordinary Calm");
-requireVisible("finalReply", "FINAL_REPLY_TEXT", "ordinary Calm");
-
-await calm.calmCommand.handler("max", context);
-if (readFileSync(calmPreferencePath, "utf8") !== "max\n") {
-  throw new Error("/calm max did not persist max as its own literal value");
-}
 if (rendered("midTurn").length !== 0) {
-  throw new Error(`Calm max left mid-turn working-note rows: ${JSON.stringify(rendered("midTurn"))}`);
+  throw new Error(`Calm on left mid-turn working-note rows: ${JSON.stringify(rendered("midTurn"))}`);
 }
-requireHidden("truncatedMidTurn", "TRUNCATED_MIDTURN_NOTE", "Calm max");
-// Pi owns the wording of its truncation notice; Calm max must leave that row's own
-// notice standing rather than collapsing an incomplete response to nothing.
+requireHidden("truncatedMidTurn", "TRUNCATED_MIDTURN_NOTE", "Calm on");
+// Pi owns the wording of its truncation notice; Calm must leave that row's own notice
+// standing rather than collapsing an incomplete response to nothing.
 if (rendered("truncatedMidTurn").length === 0) {
-  throw new Error("Calm max removed Pi's own truncation notice with the working note");
+  throw new Error("Calm on removed Pi's own truncation notice with the working note");
 }
-requireVisible("streaming", "STREAMING_NOTE_TEXT", "Calm max");
-requireVisible("truncatedFinal", "TRUNCATED_FINAL_TEXT", "Calm max");
+requireVisible("streaming", "STREAMING_NOTE_TEXT", "Calm on");
+requireVisible("truncatedFinal", "TRUNCATED_FINAL_TEXT", "Calm on");
+requireVisible("finalReply", "FINAL_REPLY_TEXT", "Calm on");
 if (JSON.stringify(rendered("finalReply")) !== stockRows.finalReply) {
-  throw new Error("Calm max changed the genuine final reply row");
+  throw new Error("Calm on changed the genuine final reply row");
 }
 if (JSON.stringify(messages) !== messagesBefore) {
-  throw new Error("Calm max mutated the assistant messages instead of a presentation copy");
+  throw new Error("Calm on mutated the assistant messages instead of a presentation copy");
 }
 
+// The removed third level: /calm parses no argument, so every invocation is the plain
+// on/off toggle and no third literal is ever persisted.
 await calm.calmCommand.handler("max", context);
-if (readFileSync(calmPreferencePath, "utf8") !== "max\n" || rendered("midTurn").length !== 0) {
-  throw new Error("repeating /calm max did not stay at max");
-}
-await calm.calmCommand.handler("  MaX  ", context);
-if (readFileSync(calmPreferencePath, "utf8") !== "max\n" || rendered("midTurn").length !== 0) {
-  throw new Error("/calm max is not accepted with surrounding space or mixed case");
-}
-
-// Restart: scramble the live level the way a fresh process starts, then let a newly
-// loaded extension restore from the persisted file alone.
-visibility.setCalmPresentation("off");
-ui.setHiddenThinkingLabel(undefined);
-requireVisible("midTurn", "MIDTURN_WORKING_NOTE", "scrambled live level");
-calm = await loadCalmExtension();
-if (calm.registeredTools.length !== 7) {
-  throw new Error(`a session restored at max claimed ${calm.registeredTools.length} built-in tools instead of 7`);
-}
-await calm.sessionStart({ reason: "resume" }, context);
-if (rendered("midTurn").length !== 0) {
-  throw new Error("a restored session treated the persisted max level as unrecognized");
-}
-for (const reason of ["startup", "new", "fork", "reload"]) {
-  await calm.sessionStart({ reason }, context);
-  if (rendered("midTurn").length !== 0) {
-    throw new Error(`a ${reason} session did not restore the persisted max level`);
-  }
-  requireVisible("finalReply", "FINAL_REPLY_TEXT", `${reason} session`);
-}
-
-await calm.calmCommand.handler("", context);
-if (readFileSync(calmPreferencePath, "utf8") !== "on\n") {
-  throw new Error("plain /calm from max did not revert to ordinary Calm");
-}
-requireVisible("midTurn", "MIDTURN_WORKING_NOTE", "reverted Calm");
-
-await calm.calmCommand.handler("", context);
 if (readFileSync(calmPreferencePath, "utf8") !== "off\n") {
-  throw new Error("plain /calm from on did not keep the existing off toggle");
+  throw new Error("/calm max was still read as a level instead of the plain toggle");
 }
+requireVisible("midTurn", "MIDTURN_WORKING_NOTE", "Calm off after /calm max");
 const restoredRows = snapshot();
 for (const name of Object.keys(rows)) {
   if (restoredRows[name] !== stockRows[name]) {
     throw new Error(`turning Calm off did not restore byte-identical ${name} rendering`);
   }
 }
-
-await calm.calmCommand.handler("max", context);
-if (readFileSync(calmPreferencePath, "utf8") !== "max\n" || rendered("midTurn").length !== 0) {
-  throw new Error("/calm max did not enter max directly from off");
+await calm.calmCommand.handler("  MaX  ", context);
+if (readFileSync(calmPreferencePath, "utf8") !== "on\n" || rendered("midTurn").length !== 0) {
+  throw new Error("a spaced, mixed-case argument did not fall through to the plain toggle");
 }
 await calm.calmCommand.handler("unrecognized", context);
-if (readFileSync(calmPreferencePath, "utf8") !== "on\n") {
+if (readFileSync(calmPreferencePath, "utf8") !== "off\n") {
   throw new Error("an unrecognized /calm argument did not fall back to the plain toggle");
+}
+
+// Restart from each persisted value, including the legacy "max" a home upgraded from
+// the removed third level still carries: every one restores ordinary Calm, never off.
+for (const persisted of ["on\n", "max\n", "max"]) {
+  writeFileSync(calmPreferencePath, persisted, "utf8");
+  // Scramble the live state the way a fresh process starts, then let a newly loaded
+  // extension restore from the persisted file alone.
+  visibility.setCalmPresentation(false);
+  ui.setHiddenThinkingLabel(undefined);
+  requireVisible("midTurn", "MIDTURN_WORKING_NOTE", "scrambled live state");
+  calm = await loadCalmExtension();
+  if (calm.registeredTools.length !== 7) {
+    throw new Error(
+      `a session restored from ${JSON.stringify(persisted)} claimed ${calm.registeredTools.length} built-in tools instead of 7`,
+    );
+  }
+  for (const reason of ["startup", "resume", "new", "fork", "reload"]) {
+    await calm.sessionStart({ reason }, context);
+    if (rendered("midTurn").length !== 0) {
+      throw new Error(
+        `a ${reason} session restored from ${JSON.stringify(persisted)} did not hide mid-turn working notes`,
+      );
+    }
+    requireVisible("finalReply", "FINAL_REPLY_TEXT", `${reason} session`);
+  }
+  // A session restored as on toggles to off; one that had wrongly dropped to off would
+  // persist "on" here instead.
+  await calm.calmCommand.handler("", context);
+  if (readFileSync(calmPreferencePath, "utf8") !== "off\n") {
+    throw new Error(`${JSON.stringify(persisted)} did not restore as ordinary Calm on`);
+  }
+  requireVisible("midTurn", "MIDTURN_WORKING_NOTE", "Calm toggled off after restore");
 }
 if (!existsSync(calmPreferencePath)) {
   throw new Error("Calm stopped persisting its preference file");
@@ -1621,9 +1611,9 @@ if (!existsSync(calmPreferencePath)) {
 JS
   status=$?
   out=$(cat "$output_file")
-  [ "$status" -eq 0 ] || fail "Pi calm max mid-turn contract failed: $out"
-  [ -z "$out" ] || fail "Pi calm max mid-turn test printed output: $out"
-  pass "Pi calm max collapses mid-turn assistant working notes to zero height while ordinary Calm keeps them, leaves streaming, truncated-final, and genuine final replies untouched, never mutates the messages, and restores the persisted max level across session starts"
+  [ "$status" -eq 0 ] || fail "Pi calm mid-turn contract failed: $out"
+  [ -z "$out" ] || fail "Pi calm mid-turn test printed output: $out"
+  pass "Pi calm on collapses mid-turn assistant working notes to zero height while Calm off keeps them, leaves streaming, truncated-final, and genuine final replies untouched, never mutates the messages, ignores every /calm argument, and restores a legacy persisted max as ordinary Calm on"
 }
 
 test_operational_followup_turn_e2e() {
@@ -3089,7 +3079,7 @@ JS
 }
 
 test_interactive_terminal_e2e() {
-  local project config home session_file export_file export_dom default_snapshot expanded_snapshot hidden_snapshot active_before_snapshot active_hidden_snapshot export_snapshot restored_snapshot working_snapshot working_response_snapshot restarted_snapshot resumed_restored_snapshot hash_before hash_after now version chrome chrome_pid chrome_wait active_wait active_screen_wait boat_frame_one boat_frame_two boat_resized_snapshot boat_focus_snapshot boat_cleared_snapshot boat_hull_line boat_sail_line boat_column_one boat_column_two boat_line boat_color_snapshot boat_color_line boat_water_snapshot boat_water_line boat_water_first boat_water_changed boat_narrow_snapshot boat_narrow_sails boat_freeze_snapshot boat_resume_snapshot boat_freeze_column boat_freeze_sail boat_resume_column boat_resume_sail
+  local project config home session_file export_file export_dom default_snapshot expanded_snapshot hidden_snapshot active_before_snapshot active_hidden_snapshot export_snapshot export_settled_snapshot restored_snapshot working_snapshot working_response_snapshot restarted_snapshot resumed_restored_snapshot hash_before hash_after now version chrome chrome_pid chrome_wait active_wait active_screen_wait boat_frame_one boat_frame_two boat_resized_snapshot boat_focus_snapshot boat_cleared_snapshot boat_hull_line boat_sail_line boat_column_one boat_column_two boat_line boat_color_snapshot boat_color_line boat_water_snapshot boat_water_line boat_water_first boat_water_changed boat_narrow_snapshot boat_narrow_sails boat_freeze_snapshot boat_resume_snapshot boat_freeze_column boat_freeze_sail boat_resume_column boat_resume_sail
   if ! command -v pi >/dev/null 2>&1 || ! command -v tmux >/dev/null 2>&1; then
     echo "skip: pi or tmux not found for Pi calm interactive E2E"
     return 0
@@ -3109,6 +3099,7 @@ test_interactive_terminal_e2e() {
   active_before_snapshot="$TMP_ROOT/active-before.txt"
   active_hidden_snapshot="$TMP_ROOT/active-hidden.txt"
   export_snapshot="$TMP_ROOT/export.txt"
+  export_settled_snapshot="$TMP_ROOT/export-settled.txt"
   restored_snapshot="$TMP_ROOT/restored.txt"
   working_snapshot="$TMP_ROOT/working.txt"
   working_response_snapshot="$TMP_ROOT/working-response.txt"
@@ -3366,6 +3357,7 @@ JSON
     # on screen through this whole redraw rather than disappearing with it.
     if ! grep -Fq "Thinking..." "$hidden_snapshot" &&
       ! grep -Fq "/calm" "$hidden_snapshot" &&
+      ! grep -Fq "I will run one command." "$hidden_snapshot" &&
       grep -Fq "FIRSTMATE WATCHER WAKE: can you explain this phrase?" "$hidden_snapshot" &&
       grep -Fq "The deterministic tool example is complete." "$hidden_snapshot"; then
       break
@@ -3402,7 +3394,9 @@ JSON
   do
     assert_contains "$(cat "$hidden_snapshot")" "$near_miss" "/calm hid the genuine operational near miss $near_miss"
   done
-  assert_contains "$(cat "$hidden_snapshot")" "I will run one command." "/calm removed assistant conversation before a tool"
+  # Mid-turn narration emitted alongside the tool call is a working note, which Calm
+  # hides against the real Pi renderer; the genuine reply that ended the response stays.
+  assert_not_contains "$(cat "$hidden_snapshot")" "I will run one command." "/calm left a mid-turn assistant working note in the transcript"
   assert_contains "$(cat "$hidden_snapshot")" "The deterministic tool example is complete." "/calm removed assistant conversation after a tool"
 
   tmux -L "$TMUX_SOCKET" send-keys -t "$TMUX_SESSION" -l "/calm-diagnostic-e2e"
@@ -3563,6 +3557,38 @@ for (const current of ["CURRENT_WATCHER_E2E", "CURRENT_TURN_END_E2E", "CURRENT_A
 }
 if (!tree.includes("firstmate-synthetic-input") || !tree.includes("/tmp/probe.status")) process.exit(1);
 JS
+  # Calm returns the transcript to its own presentation once the export has been
+  # rendered. That repaint runs on the macrotask right after Pi prints the export
+  # confirmation, so it must not overwrite it: the captain has to keep seeing where
+  # their export landed. The export-data assertions above take seconds of real time,
+  # so this snapshot is taken well after that repaint has settled rather than racing it.
+  tmux -L "$TMUX_SOCKET" capture-pane -p -t "$TMUX_SESSION" -S -600 >"$export_settled_snapshot"
+  assert_contains "$(cat "$export_settled_snapshot")" "Session exported to: $export_file" \
+    "Calm's post-export repaint overwrote Pi's export confirmation"
+  assert_not_contains "$(cat "$export_settled_snapshot")" "fm_watch_arm_pi" \
+    "/export left the Firstmate watcher tool call shell in the Calm transcript"
+  assert_not_contains "$(cat "$export_settled_snapshot")" "watcher: started Pi extension arm child" \
+    "/export left the Firstmate watcher tool result in the Calm transcript"
+  assert_not_contains "$(cat "$export_settled_snapshot")" "FIRSTMATE WATCHER WAKE: signal: /tmp/probe.status" \
+    "/export left a synthetic Firstmate user-role presentation in the Calm transcript"
+  assert_not_contains "$(cat "$export_settled_snapshot")" "Thinking..." \
+    "/export left collapsed thinking labels in the Calm transcript"
+  assert_not_contains "$(cat "$export_settled_snapshot")" "I will run one command." \
+    "/export left a mid-turn assistant working note in the Calm transcript"
+  for hidden in \
+    CURRENT_WATCHER_E2E \
+    CURRENT_TURN_END_E2E \
+    CURRENT_AWAY_E2E \
+    CURRENT_FROM_FIRSTMATE_E2E \
+    CURRENT_LAUNCH_BRIEF_E2E
+  do
+    assert_not_contains "$(cat "$export_settled_snapshot")" "$hidden" \
+      "/export left operational input $hidden in the Calm transcript"
+  done
+  assert_contains "$(cat "$export_settled_snapshot")" "Show a deterministic tool example." \
+    "/export removed a genuine user prompt from the Calm transcript"
+  assert_contains "$(cat "$export_settled_snapshot")" "The deterministic tool example is complete." \
+    "/export removed genuine assistant conversation from the Calm transcript"
 
   tmux -L "$TMUX_SOCKET" send-keys -t "$TMUX_SESSION" -l "/calm"
   tmux -L "$TMUX_SOCKET" send-keys -t "$TMUX_SESSION" M-s
@@ -3585,6 +3611,7 @@ JS
   assert_contains "$(cat "$restored_snapshot")" " Error:" "second /calm dropped the synthetic delivery diagnostic"
   assert_not_contains "$(cat "$restored_snapshot")" "Navigated to selected point" "second /calm added a navigation status row"
   assert_contains "$(cat "$restored_snapshot")" "Thinking..." "second /calm did not restore Pi's collapsed thinking labels"
+  assert_contains "$(cat "$restored_snapshot")" "I will run one command." "second /calm did not restore the mid-turn assistant working note"
   assert_contains "$(cat "$restored_snapshot")" "escape to interrupt" "/calm changed the active Ctrl+O expansion state"
 
   hash_after=$(shasum -a 256 "$session_file" | awk '{print $1}')
@@ -3933,7 +3960,7 @@ test_pi_compat_missing_adapter_exports
 test_builtin_gate_load_time
 test_calm_activation_collision_and_regression_bound
 test_rendering_and_session_lifecycle
-test_calm_max_mid_turn_working_notes
+test_calm_mid_turn_working_notes
 test_operational_followup_turn_e2e
 test_hidden_block_geometry_e2e
 test_working_ship_geometry_and_lifecycle
