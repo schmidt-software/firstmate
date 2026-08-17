@@ -1,0 +1,27 @@
+== full targeted test suite: tests/fm-no-mistakes-ci-recover.test.sh ==
+ok - refuses when no active ci step is reported
+ok - refuses when the ci step is not running
+ok - refuses when the log text does not match the known bug's warning
+ok - refuses when the ci step is no longer active on the second sample
+ok - refuses when the second sample's log advanced past the known warning
+ok - refuses when the confirmed active_for is too brief to rule out a transient hiccup
+ok - refuses a sub-second Go duration active_for instead of misparsing its 'm' as minutes
+ok - refuses to restart without --force even when fully confirmed
+ok - refuses when GitHub itself does not already show the check green
+ok - refuses when GitHub reports a failing check even though gh exited 0
+ok - a fully confirmed --force run restarts the daemon and reports recovery
+ok - a custom --resolve-key is threaded into the printed notify command
+ok - reports a failed daemon restart instead of claiming recovery
+ok - reports when doctor does not confirm daemon health after a restart
+ok - --notify-worker invokes fm-send.sh and reports success on the happy path
+ok - --notify-worker reports failure and points to the manual fallback when fm-send.sh fails
+ok - errors when the task has no metadata
+ok - errors when the task is not a ship task
+ok - errors when the task's worktree is gone
+ok - refuses when no PR URL is recorded anywhere
+ok - refuses for a non-GitHub PR provider (the bug is gh-specific)
+ok - usage error when no task id is given
+ok - --help prints usage and exits 0
+ok - usage error on an unrecognized flag
+ok - usage error when --resolve-key has no value
+all fm-no-mistakes-ci-recover tests passed
