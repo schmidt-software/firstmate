@@ -197,16 +197,27 @@ nm_active_ci_row() {  # <run-out>
 
 # Tab-separated status, active_for, last_activity, agent_pid, round from one
 # active_steps row "ci,<status>,<active_for>,<last_activity>,<agent_pid>,<round>".
+# Splits on commas that fall outside a quoted field, per this repo's TOON
+# quoting convention (bin/fm-bearings-snapshot.sh), so a comma embedded inside
+# the quoted last_activity free-text column (e.g. a retry-count log line) is
+# never mistaken for a column delimiter.
 nm_active_ci_fields() {  # <row>
-  local row rest status active_for last_activity agent_pid round
-  row=$(fm_nm_trim "$1")
-  rest=${row#*,}
-  status=$(fm_nm_strip_quotes "$(fm_nm_trim "${rest%%,*}")"); rest=${rest#*,}
-  active_for=$(fm_nm_strip_quotes "$(fm_nm_trim "${rest%%,*}")"); rest=${rest#*,}
-  last_activity=$(fm_nm_strip_quotes "$(fm_nm_trim "${rest%%,*}")"); rest=${rest#*,}
-  agent_pid=$(fm_nm_strip_quotes "$(fm_nm_trim "${rest%%,*}")"); rest=${rest#*,}
-  round=$(fm_nm_strip_quotes "$(fm_nm_trim "$rest")")
-  printf '%s\t%s\t%s\t%s\t%s' "$status" "$active_for" "$last_activity" "$agent_pid" "$round"
+  printf '%s' "$1" | awk '
+    {
+      n = 0
+      field = ""
+      inquotes = 0
+      for (i = 1; i <= length($0); i++) {
+        c = substr($0, i, 1)
+        if (c == "\"") { inquotes = !inquotes; continue }
+        if (c == "," && !inquotes) { fields[n++] = field; field = ""; continue }
+        field = field c
+      }
+      fields[n++] = field
+      for (i = 0; i <= 5; i++) { gsub(/^[ \t]+|[ \t]+$/, "", fields[i]) }
+      printf "%s\t%s\t%s\t%s\t%s", fields[1], fields[2], fields[3], fields[4], fields[5]
+    }
+  '
 }
 
 # Go-style duration string ("13m35s", "45s", "1h2m3s", "2h") to whole seconds.
@@ -281,9 +292,6 @@ GH_RC=$?
 printf '%s\n' "$GH_OUT"
 [ "$GH_RC" -eq 0 ] \
   || refuse "gh pr checks $NUMBER --repo $OWNER_REPO exited $GH_RC from the actual worktree; GitHub does not (yet) show this PR green, so this is NOT confirmed as the known daemon bug - do not restart"
-if printf '%s\n' "$GH_OUT" | grep -qiE '(^|[^a-z])fail(ed|ing)?([^a-z]|$)'; then
-  refuse "gh pr checks reports a failing check for PR $PR_URL; this is NOT the known daemon bug - do not restart"
-fi
 
 echo "confirmed: GitHub reports PR $PR_URL green while no-mistakes' ci step is stuck retrying a false failure"
 

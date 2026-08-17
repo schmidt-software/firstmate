@@ -10,8 +10,10 @@
 #       wrong step status, log text not matching the known warning, the
 #       second sample showing recovery, or too little active_for
 #   (b) refuses to restart without --force even when fully confirmed
-#   (c) refuses when GitHub itself does not already show the check green
-#       (non-zero exit, or a reported failing check)
+#   (c) refuses when GitHub itself does not already show the check green (gh
+#       exiting non-zero), but trusts gh's exit code alone rather than
+#       scanning check names, so a passing check merely named like a failure
+#       is not refused
 #   (d) a fully confirmed --force run restarts the daemon, requires
 #       `no-mistakes doctor` to report it healthy again, prints the exact
 #       fm-send.sh command to unblock the worker, and --notify-worker actually
@@ -306,6 +308,23 @@ test_fractional_second_active_for_keeps_whole_seconds() {
   pass "keeps whole seconds from a fractional-second active_for instead of zeroing them"
 }
 
+test_confirms_stuck_when_last_activity_has_embedded_comma() {
+  reset_fakes
+  local d; d=$(new_case comma-in-last-activity)
+  make_fakebin "$d"
+  write_meta "$d" t1
+  FM_FAKE_AXI_1=$(active_run_out running 1m35s "attempt 4, still $KNOWN_WARNING")
+  FM_FAKE_AXI_2=$(active_run_out running 1m40s "attempt 5, still $KNOWN_WARNING")
+  FM_FAKE_RUNS_LIST="  running    fm/other-crew aaaaaaa  2026-08-17 10:00"
+  local out rc; out=$(run_recover "$d" t1); rc=$?
+  expect_code 1 "$rc" "confirmed bug without --force must refuse for the missing flag, not a parsing mismatch"
+  assert_not_contains "$out" "does not match the known warning" "a comma embedded before the marker text must not truncate last_activity and hide the marker"
+  assert_not_contains "$out" "log advanced past the known warning" "the second sample's embedded comma must not hide the marker either"
+  assert_contains "$out" "GitHub reports PR" "GitHub verification ran, proving the stuck condition was still confirmed"
+  assert_contains "$out" "but --force was not given" "names the missing --force"
+  pass "recognizes the known warning even when last_activity contains a comma before the marker text"
+}
+
 test_ignores_sibling_table_decoy_ci_row() {
   reset_fakes
   local d; d=$(new_case sibling-decoy)
@@ -389,20 +408,21 @@ test_refuses_when_github_checks_nonzero() {
   pass "refuses when GitHub itself does not already show the check green"
 }
 
-test_refuses_when_github_reports_failing_check() {
+test_accepts_check_name_containing_fail_when_status_passes() {
   reset_fakes
-  local d; d=$(new_case gh-failing)
+  local d; d=$(new_case gh-name-contains-fail)
   make_fakebin "$d"
   write_meta "$d" t1
   arm_confirmed_stuck
+  FM_FAKE_RESTART_OUT="restarting"
+  FM_FAKE_DOCTOR_OUT="  - daemon          running"
   FM_FAKE_GH_RC=0
-  FM_FAKE_GH_OUT="build  fail  26s  https://example.invalid/run/1"
+  FM_FAKE_GH_OUT="test-failing-input-handling  pass  1m2s  https://example.invalid/run/1"
   local out rc; out=$(run_recover "$d" t1 --force); rc=$?
-  expect_code 1 "$rc" "a reported failing check must refuse"
-  assert_contains "$out" "REFUSED:" "refusal is labeled"
-  assert_contains "$out" "reports a failing check" "names the failing check"
-  assert_not_contains "$out" "restarting the no-mistakes daemon" "must never reach the restart step"
-  pass "refuses when GitHub reports a failing check even though gh exited 0"
+  expect_code 0 "$rc" "a passing check whose name merely contains 'fail' must not be refused"
+  assert_contains "$out" "GitHub reports PR" "gh's exit code, not check names, is trusted"
+  assert_contains "$out" "RECOVERED:" "the run proceeds since gh exited 0"
+  pass "does not refuse a passing check merely because its name contains 'fail'"
 }
 
 # --- (d) confirmed + --force succeeds ---------------------------------------
@@ -622,11 +642,12 @@ test_refuses_second_sample_advanced_past_warning
 test_refuses_too_brief_active_for
 test_refuses_subsecond_active_for_not_misread_as_minutes
 test_fractional_second_active_for_keeps_whole_seconds
+test_confirms_stuck_when_last_activity_has_embedded_comma
 test_ignores_sibling_table_decoy_ci_row
 test_refuses_without_force_when_confirmed
 test_runs_listing_failure_is_not_reported_as_empty
 test_refuses_when_github_checks_nonzero
-test_refuses_when_github_reports_failing_check
+test_accepts_check_name_containing_fail_when_status_passes
 test_force_restart_succeeds
 test_force_restart_custom_resolve_key
 test_force_restart_daemon_failure
